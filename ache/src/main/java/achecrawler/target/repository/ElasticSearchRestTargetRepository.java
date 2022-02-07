@@ -28,7 +28,7 @@ import achecrawler.util.CloseableIterator;
 
 public class ElasticSearchRestTargetRepository implements TargetRepository {
 
-    private static final Map<String, String> EMPTY_MAP = Collections.<String, String>emptyMap();
+    private static final Map<String, String> EMPTY_MAP = Collections.emptyMap();
     private static final Logger logger = LoggerFactory.getLogger(ElasticSearchRestTargetRepository.class);
     private static final ObjectMapper mapper = new ObjectMapper();
     
@@ -36,9 +36,9 @@ public class ElasticSearchRestTargetRepository implements TargetRepository {
         mapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
     }
 
-    private RestClient client;
-    private String typeName;
-    private String indexName;
+    private final RestClient client;
+    private final String typeName;
+    private final String indexName;
     
     public ElasticSearchRestTargetRepository(ElasticSearchConfig config) {
         this.indexName = config.getIndexName();
@@ -103,20 +103,30 @@ public class ElasticSearchRestTargetRepository implements TargetRepository {
                 + "}";
             
             String pageProperties = esMajorVersion >= 5 ? pageMapping5x : targetMapping1x;
-            
-            String mapping =
+
+            String mapping;
+            if (esMajorVersion < 7) {
+                mapping =
                      "{"
                    + "  \"mappings\": {"
                    + "    \"" + typeName + "\": " + pageProperties
                    + "  }"
                    + "}";
-            
+            } else {
+                // Elasticsearch 7.x removed support for types
+                mapping =
+                     "{"
+                   + "  \"mappings\":"
+                   + pageProperties
+                   + "}";
+            }
+
             try {
                 AbstractHttpEntity entity = createJsonEntity(mapping);
                 Response response = client.performRequest("PUT", indexEndpoint, EMPTY_MAP, entity);
                 if (response.getStatusLine().getStatusCode() != 200) {
                     throw new RuntimeException(
-                        "Failed to create index in Elasticsearch." + response.toString());
+                        "Failed to create index in Elasticsearch." + response);
                 }
             } catch (IOException e) {
                 throw new RuntimeException("Failed to create index in Elasticsearch.", e);
@@ -147,7 +157,7 @@ public class ElasticSearchRestTargetRepository implements TargetRepository {
         TargetModelElasticSearch document = new TargetModelElasticSearch(page);
         String docId = encodeUrl(page.getURL().toString());
         // We use upsert to avoid overriding existing fields in previously indexed documents
-        String endpoint = String.format("/%s/%s/%s/_update", indexName, typeName, docId);
+        String endpoint = String.format("/%s/_update/%s", indexName, docId);
         Map<String, ?> body = ImmutableMap.of(
             "doc", document,
             "doc_as_upsert", true
